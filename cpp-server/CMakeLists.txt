@@ -22,12 +22,15 @@ pkg_check_modules(CAPSTONE REQUIRED capstone)
 message(STATUS "Capstone include directory: ${CAPSTONE_INCLUDE_DIRS}")
 include_directories(${CAPSTONE_INCLUDE_DIRS})
 
+find_package(Boost REQUIRED COMPONENTS system)
+
 # Define sources and executable
 set(SOURCE_FILES
     main.cpp
     debugger.cpp
+    server_debugger.cpp
     utils.cpp
 )
 add_executable(debugger ${SOURCE_FILES})
 
-target_link_libraries(debugger PRIVATE elfio ${CAPSTONE_LIBRARIES})
+target_link_libraries(debugger PRIVATE elfio ${CAPSTONE_LIBRARIES} Boost::system pthread)

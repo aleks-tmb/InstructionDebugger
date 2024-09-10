@@ -2,7 +2,13 @@
 #include <sys/ptrace.h>
 #include <sys/wait.h>
 #include <sys/user.h>
+#include <iomanip>
 #include <iostream>
+#include <sstream>
+#include <string>
+#include <string_view>
+#include <unordered_map>
+#include <functional>
 
 #include "debugger.h"
 #include "utils.h"
@@ -25,21 +31,22 @@ void Debugger::run() {
     std::cerr << "Debugger started, child process stopped at exec" << std::endl;
 }
 
-    while (true) {
-        respond("Debugger: waiting for user input...");
-        std::string command;
-        std::cin >> command;
+std::string Debugger::handle_command(const std::string& command) {
+    static std::string prev_command;
+    // Use previous command if the current one is empty
+    std::string_view cmd = command.empty() ? prev_command : command;
+    prev_command = cmd;
 
-        if (command == "c") {
-            continue_execution();
-        } else if (command == "b") {
-            set_breakpoint("main");
-        } else if (command == "s") {
-            step_instruction();
-            print_executing_instruction();
-        } else if (command == "e") {
-            break;
-        }
+    if (cmd == "b") {
+        return set_breakpoint("main");
+    } else if (cmd == "c") {
+        continue_execution();
+        return print_executing_instruction();
+    } else if (cmd == "s") {
+        step_instruction();
+        return print_executing_instruction();
+    } else {
+        return "Unknown command!";
     }
 }
 
@@ -52,24 +59,23 @@ void Debugger::wait_for_signal() {
     int status;
     waitpid(m_pid, &status, 0);
     if (WIFSTOPPED(status)) {
-        respond("Debugger: stopped, signal " + std::to_string(WSTOPSIG(status)));
+        std::cerr <<  "signal received: " + std::to_string(WSTOPSIG(status)) << std::endl;
     }
 }
 
-void Debugger::set_breakpoint(unsigned long address) {
+std::string Debugger::set_breakpoint(unsigned long address) {
     long data = ptrace(PTRACE_PEEKTEXT, m_pid, (void*)address, nullptr);
     if (data == -1) {
-        respond("Failed to read memory at address " + toHex(address));
-        return;
+        return "Failed to read memory at address " + toHex(address);
     }
 
     std::cout << toHex(data) << std::endl;
 
     long breakpointInst = (data & ~0xFF) | 0xCC;  // Inject INT 3 (0xCC)
     if (ptrace(PTRACE_POKETEXT, m_pid, (void*)address, (void*)breakpointInst) == -1) {
-        respond("Failed to write breakpoint at address " + toHex(address));
+        return "Failed to write breakpoint at address " + toHex(address);
     } else {
-        respond("Debugger: Breakpoint set at address " + toHex(address));
+        return "Breakpoint set at address " + toHex(address);
     }
 }
 
@@ -77,24 +83,20 @@ std::string Debugger::set_breakpoint(const std::string& name) {
     std::string path = debugger::getAbsolutePath(m_program);
     uintptr_t base_addr = getBaseAddress(m_pid, path);
     if (base_addr == 0) {
-        respond("Failed to get base address");
-        return;
+        return "Failed to get base address";
     }
-    respond("Base address: " + toHex(base_addr));
 
     uintptr_t function_offset = getFunctionOffset(path.c_str(), name.c_str());
     if (function_offset == 0) {
-        respond("Failed to get function offset for " + name);
-        return;
+        return "Failed to get function offset for " + name;
     }
-    respond("Function offset for " + name + ": " + toHex(function_offset));
 
     // Hack to determine PIC code
     if (function_offset > base_addr) {
         base_addr = 0;
     }
     uintptr_t address = function_offset + base_addr;
-    set_breakpoint(address);
+    return set_breakpoint(address);
 }
 
 void Debugger::step_instruction() {
@@ -102,7 +104,7 @@ void Debugger::step_instruction() {
     wait_for_signal();
 }
 
-void Debugger::print_executing_instruction() {
+std::string Debugger::print_executing_instruction() {
     // Get the current instruction pointer (RIP)
     struct user_regs_struct regs;
     ptrace(PTRACE_GETREGS, m_pid, nullptr, &regs);
@@ -121,11 +123,11 @@ void Debugger::print_executing_instruction() {
     size_t count = cs_disasm(m_capstone_handle, data, sizeof(data), rip, 1, &insn);
     oss << "0x" << std::hex << std::setw(16) << std::setfill('0') << rip << ": ";
     if (count > 0) {
-        // Print only the first disassembled instruction
-        respond("Executing instruction: " + std::string(insn[0].mnemonic) + " " + std::string(insn[0].op_str));
+        // Print the address and the disassembled instruction
+        oss << insn[0].mnemonic << " " << insn[0].op_str;
         cs_free(insn, count);
     } else {
-        respond("Failed to disassemble instruction");
+        oss << "-";
     }
     return oss.str();
 }

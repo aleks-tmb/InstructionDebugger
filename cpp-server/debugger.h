@@ -13,8 +13,8 @@ public:
     Debugger(pid_t pid, const std::string& program);
     ~Debugger();
 
-    // Main method to run the debugger
     void run();
+    std::string handle_command(const std::string& command);
 
     std::string set_breakpoint(const std::string& name);
     std::string set_breakpoint(uintptr_t address);
@@ -28,14 +28,15 @@ public:
 
 
 protected:
-    virtual void respond(const std::string& message) = 0;
+    std::string respond(const std::string& message) {
+        return message;
+    }
 
 private:
     pid_t m_pid;
     std::string m_program;
     csh m_capstone_handle;
 
-    // Helper methods
     void wait_for_signal();
 };
 
