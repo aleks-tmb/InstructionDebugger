@@ -4,6 +4,7 @@
 #include <capstone/capstone.h>
 #include <cstdint>
 #include <string>
+#include <vector>
 #include <sys/types.h>
 
 namespace debugger {
@@ -24,6 +25,7 @@ public:
     void continue_execution();
     void step_instruction();
     void step_over();
+    void step_out();
 
 
 
@@ -38,6 +40,8 @@ private:
     csh m_capstone_handle;
 
     void wait_for_signal();
+    uintptr_t get_rip() const;
+    std::vector<uint8_t> read_instruction_at_rip(uintptr_t rip) const;
 };
 
 } // namespace debugger

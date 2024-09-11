@@ -45,9 +45,17 @@ std::string Debugger::handle_command(const std::string& command) {
     } else if (cmd == "s") {
         step_instruction();
         return print_executing_instruction();
+    } else if (cmd == "step over") {
+        step_over();
+        return print_executing_instruction();
+    } else if (cmd == "step out") {
+        step_out();
+        return print_executing_instruction();
     } else {
         return "Unknown command!";
     }
+
+    
 }
 
 void Debugger::continue_execution() {
@@ -73,10 +81,12 @@ std::string Debugger::set_breakpoint(unsigned long address) {
 
     long breakpointInst = (data & ~0xFF) | 0xCC;  // Inject INT 3 (0xCC)
     if (ptrace(PTRACE_POKETEXT, m_pid, (void*)address, (void*)breakpointInst) == -1) {
-        return "Failed to write breakpoint at address " + toHex(address);
+        std::cerr << "Failed to write breakpoint at address " + toHex(address);
     } else {
+        std::cout << "Breakpoint set at address " + toHex(address) << std::endl;
         return "Breakpoint set at address " + toHex(address);
     }
+    return "Failed to write breakpoint at address " + toHex(address);
 }
 
 std::string Debugger::set_breakpoint(const std::string& name) {
@@ -104,23 +114,35 @@ void Debugger::step_instruction() {
     wait_for_signal();
 }
 
-std::string Debugger::print_executing_instruction() {
-    // Get the current instruction pointer (RIP)
+std::vector<uint8_t> Debugger::read_instruction_at_rip(uintptr_t rip) const {
+    size_t size = 16; // Read 16 bytes for rip
+    std::vector<uint8_t> data(size);
+    
+    for (size_t offset = 0; offset < size;)  {
+        size_t chunk_size = std::min(size - offset, sizeof(long));
+
+        long word = ptrace(PTRACE_PEEKTEXT, m_pid, (void*)(rip + offset), nullptr);
+        std::memcpy(data.data() + offset, &word, chunk_size);
+        
+        offset += chunk_size;
+    }    
+    return data;
+}
+
+uintptr_t Debugger::get_rip() const {
     struct user_regs_struct regs;
     ptrace(PTRACE_GETREGS, m_pid, nullptr, &regs);
+    return regs.rip;   
+}
 
-    // Read the instruction at the current RIP
-    uintptr_t rip = regs.rip;
-    uint8_t data[16];  // Buffer to store instruction bytes
-    for (size_t i = 0; i < sizeof(data); i += sizeof(long)) {
-        long word = ptrace(PTRACE_PEEKTEXT, m_pid, (void*)(rip + i), nullptr);
-        memcpy(&data[i], &word, sizeof(word));
-    }
-
-    cs_insn* insn;
-    std::ostringstream oss;
+std::string Debugger::print_executing_instruction() {
+    uintptr_t rip = get_rip();
+    std::vector<uint8_t> data = read_instruction_at_rip(rip);
     // Disassemble only one instruction
-    size_t count = cs_disasm(m_capstone_handle, data, sizeof(data), rip, 1, &insn);
+    cs_insn* insn;
+    size_t count = cs_disasm(m_capstone_handle, data.data(), data.size(), rip, 1, &insn);
+
+    std::ostringstream oss;
     oss << "0x" << std::hex << std::setw(16) << std::setfill('0') << rip << ": ";
     if (count > 0) {
         // Print the address and the disassembled instruction
@@ -131,4 +153,35 @@ std::string Debugger::print_executing_instruction() {
     }
     return oss.str();
 }
+
+void Debugger::step_over() {
+    uintptr_t rip = get_rip();
+    std::vector<uint8_t> data = read_instruction_at_rip(rip);
+    // Disassemble only one instruction
+    cs_insn* insn;
+    size_t count = cs_disasm(m_capstone_handle, data.data(), data.size(), rip, 1, &insn);
+
+    if (count > 0 && insn[0].id == X86_INS_CALL) {
+        // If it's a function call, set a breakpoint after the call
+        uintptr_t after_call = rip + insn[0].size;
+        set_breakpoint(after_call);
+        continue_execution();
+    } else {
+        step_instruction();  
+    }   
+}
+
+void Debugger::step_out() {
+    struct user_regs_struct regs;
+    ptrace(PTRACE_GETREGS, m_pid, nullptr, &regs);
+    uintptr_t return_address = ptrace(PTRACE_PEEKTEXT, m_pid, regs.rsp, nullptr);
+    std::cout << "Return address: " << toHex(return_address) << std::endl;
+    if (return_address == (uintptr_t)-1 || return_address == 0) {
+        std::cout << "Failed to read return address from stack" << std::endl;
+        return;
+    }   
+    set_breakpoint(return_address);
+    continue_execution(); 
+}
+
 } // namespace debugger
