@@ -58,35 +58,68 @@ std::string Debugger::handle_command(const std::string& command) {
     
 }
 
+void Debugger::decrement_rip() {
+  struct user_regs_struct regs;
+  if (ptrace(PTRACE_GETREGS, m_pid, nullptr, &regs) == -1) {
+    std::cerr << "Failed to get registers" << std::endl;
+    return;
+  }
+  regs.rip--;
+  // Set the updated registers
+  if (ptrace(PTRACE_SETREGS, m_pid, nullptr, &regs) == -1) {
+    std::cerr << "Failed to set registers" << std::endl;
+    return;
+  }
+}
+
 void Debugger::continue_execution() {
-    ptrace(PTRACE_CONT, m_pid, nullptr, nullptr);
-    wait_for_signal();
+  step_instruction();
+  ptrace(PTRACE_CONT, m_pid, nullptr, nullptr);
+  wait_for_signal();
 }
 
 void Debugger::wait_for_signal() {
     int status;
     waitpid(m_pid, &status, 0);
+
     if (WIFSTOPPED(status)) {
-        std::cerr <<  "signal received: " + std::to_string(WSTOPSIG(status)) << std::endl;
+      int signal = WSTOPSIG(status);
+      // Handle breakpoint signal
+      if (signal == SIGTRAP) {
+        uintptr_t orig_address = get_rip() - 1;
+        auto it = m_breakpoints.find(orig_address);
+        if (it != m_breakpoints.end()) {
+          long original = it->second;
+          ptrace(PTRACE_POKETEXT, m_pid, (void *)orig_address,
+                 (void *)original);
+          decrement_rip();
+          std::cout << "Restore original instruction at" << toHex(orig_address)
+                    << std::endl;
+          return;
+        }
+      }
+      std::cout << "Signal received: " + std::to_string(signal) << std::endl;
     }
 }
 
 std::string Debugger::set_breakpoint(unsigned long address) {
-    long data = ptrace(PTRACE_PEEKTEXT, m_pid, (void*)address, nullptr);
-    if (data == -1) {
-        return "Failed to read memory at address " + toHex(address);
+  long orig_inst = ptrace(PTRACE_PEEKTEXT, m_pid, (void *)address, nullptr);
+  if (orig_inst == -1) {
+    std::cerr << "Failed to read memory at address " + toHex(address);
+    std::cerr << ". Error: " << strerror(errno) << std::endl;
+    return "Failed to set breakpoint";
+  }
+
+  m_breakpoints[address] = orig_inst;
+  long breakpointInst = (orig_inst & ~0xFF) | 0xCC; // Inject INT 3 (0xCC)
+  if (ptrace(PTRACE_POKETEXT, m_pid, (void *)address, (void *)breakpointInst) ==
+      -1) {
+    std::cerr << "Failed to write breakpoint at address " + toHex(address);
+    return "Failed to set breakpoint";
     }
 
-    std::cout << toHex(data) << std::endl;
-
-    long breakpointInst = (data & ~0xFF) | 0xCC;  // Inject INT 3 (0xCC)
-    if (ptrace(PTRACE_POKETEXT, m_pid, (void*)address, (void*)breakpointInst) == -1) {
-        std::cerr << "Failed to write breakpoint at address " + toHex(address);
-    } else {
-        std::cout << "Breakpoint set at address " + toHex(address) << std::endl;
-        return "Breakpoint set at address " + toHex(address);
-    }
-    return "Failed to write breakpoint at address " + toHex(address);
+    std::cout << "Breakpoint set at address " + toHex(address) << std::endl;
+    return "Breakpoint set at address " + toHex(address);
 }
 
 std::string Debugger::set_breakpoint(const std::string& name) {
@@ -110,8 +143,15 @@ std::string Debugger::set_breakpoint(const std::string& name) {
 }
 
 void Debugger::step_instruction() {
-    ptrace(PTRACE_SINGLESTEP, m_pid, nullptr, nullptr);
-    wait_for_signal();
+  uintptr_t addr = get_rip();
+  ptrace(PTRACE_SINGLESTEP, m_pid, nullptr, nullptr);
+  wait_for_signal();
+
+  auto it = m_breakpoints.find(addr);
+  if (it != m_breakpoints.end()) {
+    std::cout << "Restore Breakpoint " << std::endl;
+    set_breakpoint(addr);
+  }
 }
 
 std::vector<uint8_t> Debugger::read_instruction_at_rip(uintptr_t rip) const {

@@ -4,8 +4,9 @@
 #include <capstone/capstone.h>
 #include <cstdint>
 #include <string>
-#include <vector>
 #include <sys/types.h>
+#include <unordered_map>
+#include <vector>
 
 namespace debugger {
 
@@ -40,8 +41,11 @@ private:
     csh m_capstone_handle;
 
     void wait_for_signal();
+    void decrement_rip();
     uintptr_t get_rip() const;
     std::vector<uint8_t> read_instruction_at_rip(uintptr_t rip) const;
+    std::unordered_map<uintptr_t, long>
+        m_breakpoints; // address -> original instruction
 };
 
 } // namespace debugger
