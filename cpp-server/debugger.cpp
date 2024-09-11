@@ -1,4 +1,3 @@
-#include <capstone/capstone.h>
 #include <cstring>
 #include <sys/ptrace.h>
 #include <sys/wait.h>
@@ -10,8 +9,15 @@
 
 namespace debugger {
 
-Debugger::Debugger(pid_t pid, const std::string& program)
-    : m_pid(pid), m_program(program) {}
+Debugger::Debugger(pid_t pid, const std::string& program) 
+    : m_pid(pid), m_program(program) {
+    // Initialize Capstone disassembler
+    cs_open(CS_ARCH_X86, CS_MODE_64, &m_capstone_handle);
+}
+
+Debugger::~Debugger() {
+    cs_close(&m_capstone_handle);
+}
 
 void Debugger::run() {
     int status;
@@ -109,18 +115,11 @@ void Debugger::print_executing_instruction() {
         memcpy(&data[i], &word, sizeof(word));
     }
 
-    // Initialize Capstone disassembler
-    csh handle;
     cs_insn* insn;
-    size_t count;
-
-    if (cs_open(CS_ARCH_X86, CS_MODE_64, &handle) != CS_ERR_OK) {
-        respond("Failed to initialize Capstone");
-        return;
-    }
-
+    std::ostringstream oss;
     // Disassemble only one instruction
-    count = cs_disasm(handle, data, sizeof(data), rip, 1, &insn);
+    size_t count = cs_disasm(m_capstone_handle, data, sizeof(data), rip, 1, &insn);
+    oss << "0x" << std::hex << std::setw(16) << std::setfill('0') << rip << ": ";
     if (count > 0) {
         // Print only the first disassembled instruction
         respond("Executing instruction: " + std::string(insn[0].mnemonic) + " " + std::string(insn[0].op_str));
@@ -128,8 +127,6 @@ void Debugger::print_executing_instruction() {
     } else {
         respond("Failed to disassemble instruction");
     }
-
-    cs_close(&handle);
+    return oss.str();
 }
-
 } // namespace debugger
