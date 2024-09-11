@@ -28,9 +28,9 @@ public:
     void step_over();
     void step_out();
 
+    std::string show_registers_state() const;
 
-
-protected:
+  protected:
     std::string respond(const std::string& message) {
         return message;
     }

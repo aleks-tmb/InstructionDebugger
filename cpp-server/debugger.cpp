@@ -37,7 +37,7 @@ std::string Debugger::handle_command(const std::string& command) {
     std::string_view cmd = command.empty() ? prev_command : command;
     prev_command = cmd;
 
-    if (cmd.starts_with("break ")) {
+    if (cmd.rfind("break ", 0) == 0) {
       std::string arg = std::string(cmd.substr(6));
 
       // Check if the argument is an address or a function name
@@ -63,6 +63,8 @@ std::string Debugger::handle_command(const std::string& command) {
     } else if (cmd == "step out") {
       step_out();
       return print_executing_instruction();
+    } else if (cmd == "state") {
+      return show_registers_state();
     } else {
       return "Unknown command!";
     }
@@ -199,7 +201,7 @@ std::string Debugger::print_executing_instruction() {
     size_t count = cs_disasm(m_capstone_handle, data.data(), data.size(), rip, 1, &insn);
 
     std::ostringstream oss;
-    oss << "0x" << std::hex << std::setw(16) << std::setfill('0') << rip << ": ";
+    oss << toHex(rip) << ": ";
     if (count > 0) {
         // Print the address and the disassembled instruction
         oss << insn[0].mnemonic << " " << insn[0].op_str;
@@ -240,6 +242,34 @@ void Debugger::step_out() {
     temp_breakpoint = return_address;
     set_breakpoint(return_address);
     continue_execution(); 
+}
+
+std::string Debugger::show_registers_state() const {
+  struct user_regs_struct regs;
+  if (ptrace(PTRACE_GETREGS, m_pid, nullptr, &regs) == -1) {
+    return "Failed to get register state.";
+  }
+
+  std::ostringstream oss;
+  oss << "RIP: " << toHex(regs.rip) << std::endl
+      << "RAX: " << toHex(regs.rax) << std::endl
+      << "RBX: " << toHex(regs.rbx) << std::endl
+      << "RCX: " << toHex(regs.rcx) << std::endl
+      << "RDX: " << toHex(regs.rdx) << std::endl
+      << "RSI: " << toHex(regs.rsi) << std::endl
+      << "RDI: " << toHex(regs.rdi) << std::endl
+      << "RSP: " << toHex(regs.rsp) << std::endl
+      << "RBP: " << toHex(regs.rbp) << std::endl
+      << "R8:  " << toHex(regs.r8) << std::endl
+      << "R9:  " << toHex(regs.r9) << std::endl
+      << "R10: " << toHex(regs.r10) << std::endl
+      << "R11: " << toHex(regs.r11) << std::endl
+      << "R12: " << toHex(regs.r12) << std::endl
+      << "R13: " << toHex(regs.r13) << std::endl
+      << "R14: " << toHex(regs.r14) << std::endl
+      << "R15: " << toHex(regs.r15) << std::endl;
+
+  return oss.str();
 }
 
 } // namespace debugger
