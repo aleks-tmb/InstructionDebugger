@@ -54,8 +54,6 @@ std::string Debugger::handle_command(const std::string& command) {
     } else {
         return "Unknown command!";
     }
-
-    
 }
 
 void Debugger::decrement_rip() {
@@ -95,6 +93,11 @@ void Debugger::wait_for_signal() {
           decrement_rip();
           std::cout << "Restore original instruction at" << toHex(orig_address)
                     << std::endl;
+          if (temp_breakpoint == orig_address) {
+            m_breakpoints.erase(temp_breakpoint);
+            temp_breakpoint = 0;
+            std::cout << "Remove temp breakpoint" << std::endl;
+          }
           return;
         }
       }
@@ -142,6 +145,8 @@ std::string Debugger::set_breakpoint(const std::string& name) {
     return set_breakpoint(address);
 }
 
+// Execute current instruction and restore breakpoint if it was set on the
+// instruction
 void Debugger::step_instruction() {
   uintptr_t addr = get_rip();
   ptrace(PTRACE_SINGLESTEP, m_pid, nullptr, nullptr);
@@ -149,7 +154,6 @@ void Debugger::step_instruction() {
 
   auto it = m_breakpoints.find(addr);
   if (it != m_breakpoints.end()) {
-    std::cout << "Restore Breakpoint " << std::endl;
     set_breakpoint(addr);
   }
 }
@@ -204,6 +208,7 @@ void Debugger::step_over() {
     if (count > 0 && insn[0].id == X86_INS_CALL) {
         // If it's a function call, set a breakpoint after the call
         uintptr_t after_call = rip + insn[0].size;
+        temp_breakpoint = after_call;
         set_breakpoint(after_call);
         continue_execution();
     } else {
@@ -219,7 +224,8 @@ void Debugger::step_out() {
     if (return_address == (uintptr_t)-1 || return_address == 0) {
         std::cout << "Failed to read return address from stack" << std::endl;
         return;
-    }   
+    }
+    temp_breakpoint = return_address;
     set_breakpoint(return_address);
     continue_execution(); 
 }

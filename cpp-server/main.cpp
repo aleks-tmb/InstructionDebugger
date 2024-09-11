@@ -24,18 +24,17 @@ int main(int argc, char* argv[]) {
         ptrace(PTRACE_TRACEME, 0, nullptr, nullptr);
         execl(argv[1], argv[1], nullptr);
     } else if (pid > 0) {
-        std::string program = debugger::getAbsolutePath(argv[1]);
-        debugger::Debugger debugger(pid, program);
-        debugger.run();
+      debugger::Debugger debugger(pid, argv[1]);
+      debugger.run();
 
-        try {
-            boost::asio::io_context io_context;
-            debugger::ServerDebugger s(io_context, std::atoi(argv[2]), debugger);
-            io_context.run();
-        } catch (std::exception& e) {
-            std::cerr << "Exception: " << e.what() << "\n";
-            return -1;
-        }
+      try {
+        boost::asio::io_context io_context;
+        debugger::ServerDebugger s(io_context, std::atoi(argv[2]), debugger);
+        io_context.run();
+      } catch (std::exception &e) {
+        std::cerr << "Exception: " << e.what() << "\n";
+        return -1;
+      }
     } else {
         std::cerr << "Fork failed!" << std::endl;
         return -1;

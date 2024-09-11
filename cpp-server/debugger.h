@@ -46,6 +46,7 @@ private:
     std::vector<uint8_t> read_instruction_at_rip(uintptr_t rip) const;
     std::unordered_map<uintptr_t, long>
         m_breakpoints; // address -> original instruction
+    uintptr_t temp_breakpoint = 0; // breakpoint for step over/out
 };
 
 } // namespace debugger
