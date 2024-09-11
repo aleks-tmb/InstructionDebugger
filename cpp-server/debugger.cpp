@@ -37,22 +37,34 @@ std::string Debugger::handle_command(const std::string& command) {
     std::string_view cmd = command.empty() ? prev_command : command;
     prev_command = cmd;
 
-    if (cmd == "b") {
-        return set_breakpoint("main");
-    } else if (cmd == "c") {
-        continue_execution();
-        return print_executing_instruction();
-    } else if (cmd == "s") {
-        step_instruction();
-        return print_executing_instruction();
+    if (cmd.starts_with("break ")) {
+      std::string arg = std::string(cmd.substr(6));
+
+      // Check if the argument is an address or a function name
+      if (arg.find("0x") == 0) {
+        // Argument is an address
+        uintptr_t address;
+        std::stringstream ss(arg);
+        ss >> std::hex >> address;
+        return set_breakpoint(address);
+      } else {
+        // Argument is a function name
+        return set_breakpoint(arg);
+      }
+    } else if (cmd == "c" || cmd == "continue") {
+      continue_execution();
+      return print_executing_instruction();
+    } else if (cmd == "s" || cmd == "step") {
+      step_instruction();
+      return print_executing_instruction();
     } else if (cmd == "step over") {
-        step_over();
-        return print_executing_instruction();
+      step_over();
+      return print_executing_instruction();
     } else if (cmd == "step out") {
-        step_out();
-        return print_executing_instruction();
+      step_out();
+      return print_executing_instruction();
     } else {
-        return "Unknown command!";
+      return "Unknown command!";
     }
 }
 
