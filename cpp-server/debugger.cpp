@@ -16,7 +16,8 @@ Debugger::Debugger(pid_t pid, const std::string& program)
 void Debugger::run() {
     int status;
     waitpid(m_pid, &status, 0);
-    respond("Debugger started, child process stopped at exec.");
+    std::cerr << "Debugger started, child process stopped at exec" << std::endl;
+}
 
     while (true) {
         respond("Debugger: waiting for user input...");
@@ -66,21 +67,26 @@ void Debugger::set_breakpoint(unsigned long address) {
     }
 }
 
-void Debugger::set_breakpoint(const std::string& name) {
-    uintptr_t base_addr = getBaseAddress(m_pid, m_program);
+std::string Debugger::set_breakpoint(const std::string& name) {
+    std::string path = debugger::getAbsolutePath(m_program);
+    uintptr_t base_addr = getBaseAddress(m_pid, path);
     if (base_addr == 0) {
         respond("Failed to get base address");
         return;
     }
     respond("Base address: " + toHex(base_addr));
 
-    uintptr_t function_offset = getFunctionOffset(m_program.c_str(), name.c_str());
+    uintptr_t function_offset = getFunctionOffset(path.c_str(), name.c_str());
     if (function_offset == 0) {
         respond("Failed to get function offset for " + name);
         return;
     }
     respond("Function offset for " + name + ": " + toHex(function_offset));
 
+    // Hack to determine PIC code
+    if (function_offset > base_addr) {
+        base_addr = 0;
+    }
     uintptr_t address = function_offset + base_addr;
     set_breakpoint(address);
 }

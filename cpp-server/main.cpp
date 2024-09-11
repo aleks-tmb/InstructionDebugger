@@ -27,10 +27,7 @@ int main(int argc, char* argv[]) {
         ptrace(PTRACE_TRACEME, 0, nullptr, nullptr);
         execl(argv[1], argv[1], nullptr);
     } else if (pid > 0) {
-        std::cout << "pid = " << pid << std::endl;
-        std::string program = debugger::getAbsolutePath(argv[1]);
-        std::cout << program << std::endl;
-        CLIDebugger debugger(pid, program);
+        debugger::Debugger debugger(pid, argv[1]);
         debugger.run();
     } else {
         std::cerr << "Fork failed!" << std::endl;
