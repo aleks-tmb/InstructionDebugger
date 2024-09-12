@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.14)
 project(DebuggerProject)
 
 set(CMAKE_CXX_STANDARD 17)
@@ -21,7 +21,7 @@ pkg_check_modules(CAPSTONE REQUIRED capstone)
 message(STATUS "Capstone include directory: ${CAPSTONE_INCLUDE_DIRS}")
 include_directories(${CAPSTONE_INCLUDE_DIRS})
 
-find_package(Boost REQUIRED COMPONENTS system)
+find_package(Boost 1.66 REQUIRED COMPONENTS system)
 
 # Define sources and executable
 set(SOURCE_FILES

@@ -28,7 +28,7 @@ Debugger::~Debugger() {
 void Debugger::run() {
     int status;
     waitpid(m_pid, &status, 0);
-    std::cerr << "Debugger started, child process stopped at exec" << std::endl;
+    log("Debugger started, child process stopped at exec");
 }
 
 std::string Debugger::handle_command(const std::string& command) {
@@ -70,16 +70,16 @@ std::string Debugger::handle_command(const std::string& command) {
     }
 }
 
-void Debugger::decrement_rip() {
+void Debugger::decrement_rip() const {
   struct user_regs_struct regs;
   if (ptrace(PTRACE_GETREGS, m_pid, nullptr, &regs) == -1) {
-    std::cerr << "Failed to get registers" << std::endl;
+    log("Failed to get registers");
     return;
   }
   regs.rip--;
   // Set the updated registers
   if (ptrace(PTRACE_SETREGS, m_pid, nullptr, &regs) == -1) {
-    std::cerr << "Failed to set registers" << std::endl;
+    log("Failed to set registers");
     return;
   }
 }
@@ -96,34 +96,38 @@ void Debugger::wait_for_signal() {
 
     if (WIFSTOPPED(status)) {
       int signal = WSTOPSIG(status);
+      log("Signal received: " + std::to_string(signal));
+
       // Handle breakpoint signal
       if (signal == SIGTRAP) {
         uintptr_t orig_address = get_rip() - 1;
         auto it = m_breakpoints.find(orig_address);
-        if (it != m_breakpoints.end()) {
-          long original = it->second;
-          ptrace(PTRACE_POKETEXT, m_pid, (void *)orig_address,
-                 (void *)original);
-          decrement_rip();
-          std::cout << "Restore original instruction at" << toHex(orig_address)
-                    << std::endl;
-          if (temp_breakpoint == orig_address) {
-            m_breakpoints.erase(temp_breakpoint);
-            temp_breakpoint = 0;
-            std::cout << "Remove temp breakpoint" << std::endl;
-          }
+        if (it == m_breakpoints.end()) {
           return;
         }
+
+        // Before executing the instruction, we need to remove int3 and restore
+        // the original instruction.
+        log("Restore original instruction at " + toHex(orig_address));
+        long original = it->second;
+        ptrace(PTRACE_POKETEXT, m_pid, (void *)orig_address, (void *)original);
+        decrement_rip();
+
+        // Remove breakpoint set for step out/over
+        if (temp_breakpoint == orig_address) {
+          m_breakpoints.erase(temp_breakpoint);
+          temp_breakpoint = 0;
+          log("Remove temp breakpoint at " + toHex(orig_address));
+        }
       }
-      std::cout << "Signal received: " + std::to_string(signal) << std::endl;
     }
 }
 
 std::string Debugger::set_breakpoint(unsigned long address) {
   long orig_inst = ptrace(PTRACE_PEEKTEXT, m_pid, (void *)address, nullptr);
   if (orig_inst == -1) {
-    std::cerr << "Failed to read memory at address " + toHex(address);
-    std::cerr << ". Error: " << strerror(errno) << std::endl;
+    log("Failed to read memory at address " + toHex(address) +
+        ". Error: " + strerror(errno));
     return "Failed to set breakpoint";
   }
 
@@ -131,24 +135,24 @@ std::string Debugger::set_breakpoint(unsigned long address) {
   long breakpointInst = (orig_inst & ~0xFF) | 0xCC; // Inject INT 3 (0xCC)
   if (ptrace(PTRACE_POKETEXT, m_pid, (void *)address, (void *)breakpointInst) ==
       -1) {
-    std::cerr << "Failed to write breakpoint at address " + toHex(address);
+    log("Failed to write breakpoint at address " + toHex(address));
     return "Failed to set breakpoint";
     }
 
-    std::cout << "Breakpoint set at address " + toHex(address) << std::endl;
+    log("Breakpoint set at address " + toHex(address));
     return "Breakpoint set at address " + toHex(address);
 }
 
 std::string Debugger::set_breakpoint(const std::string& name) {
-    std::string path = debugger::getAbsolutePath(m_program);
-    uintptr_t base_addr = getBaseAddress(m_pid, path);
-    if (base_addr == 0) {
-        return "Failed to get base address";
-    }
+  uintptr_t base_addr = getBaseAddress(m_pid, m_program);
+  if (base_addr == 0) {
+    log("Failed to get base address");
+  }
 
-    uintptr_t function_offset = getFunctionOffset(path.c_str(), name.c_str());
-    if (function_offset == 0) {
-        return "Failed to get function offset for " + name;
+  uintptr_t function_offset =
+      getFunctionOffset(m_program.c_str(), name.c_str());
+  if (function_offset == 0) {
+    log("Failed to get function offset for " + name);
     }
 
     // Hack to determine PIC code
@@ -159,8 +163,8 @@ std::string Debugger::set_breakpoint(const std::string& name) {
     return set_breakpoint(address);
 }
 
-// Execute current instruction and restore breakpoint if it was set on the
-// instruction
+// Execute current instruction and restore the breakpoint if it was set on the
+// instruction by user
 void Debugger::step_instruction() {
   uintptr_t addr = get_rip();
   ptrace(PTRACE_SINGLESTEP, m_pid, nullptr, nullptr);
@@ -234,10 +238,9 @@ void Debugger::step_out() {
     struct user_regs_struct regs;
     ptrace(PTRACE_GETREGS, m_pid, nullptr, &regs);
     uintptr_t return_address = ptrace(PTRACE_PEEKTEXT, m_pid, regs.rsp, nullptr);
-    std::cout << "Return address: " << toHex(return_address) << std::endl;
     if (return_address == (uintptr_t)-1 || return_address == 0) {
-        std::cout << "Failed to read return address from stack" << std::endl;
-        return;
+      log("Failed to read return address from stack");
+      return;
     }
     temp_breakpoint = return_address;
     set_breakpoint(return_address);
@@ -247,7 +250,7 @@ void Debugger::step_out() {
 std::string Debugger::show_registers_state() const {
   struct user_regs_struct regs;
   if (ptrace(PTRACE_GETREGS, m_pid, nullptr, &regs) == -1) {
-    return "Failed to get register state.";
+    log("Failed to get register state");
   }
 
   std::ostringstream oss;

@@ -19,12 +19,18 @@ int main(int argc, char* argv[]) {
         return -1;
     }
 
+    std::string path = debugger::getAbsolutePath(argv[1]);
+    if (path == "") {
+      std::cerr << "Error: Path does not exist." << std::endl;
+      return -1;
+    }
+
     pid_t pid = fork();
     if (pid == 0) {
         ptrace(PTRACE_TRACEME, 0, nullptr, nullptr);
         execl(argv[1], argv[1], nullptr);
     } else if (pid > 0) {
-      debugger::Debugger debugger(pid, argv[1]);
+      debugger::Debugger debugger(pid, path);
       debugger.run();
 
       try {

@@ -10,6 +10,9 @@ namespace debugger {
 
 std::string getAbsolutePath(const std::string& relativePath) {
     std::filesystem::path fsPath(relativePath);
+    if (!std::filesystem::exists(relativePath)) {
+        return "";
+    }
     std::filesystem::path absolutePath = std::filesystem::canonical(fsPath);
     return absolutePath.string();
 }

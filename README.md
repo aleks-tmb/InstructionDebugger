@@ -8,6 +8,7 @@
 ### Dependencies
 * kotlin
 * libcapstone-dev
+* libboost-all-dev
 * libgtest-dev
 
 ### How to build
@@ -25,7 +26,7 @@ cd kotlin-client
 
 ### Usage
 1. Run debugger: `./debugger <program> <port>`
-2. Connect client: `java -jar Client.jar localhost 8080`
+2. Connect client: `java -jar Client.jar <server> <port>`
 3. Debug assembly using available commands:
 ```
 break <address>
